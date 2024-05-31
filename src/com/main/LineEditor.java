@@ -10,7 +10,7 @@ import java.util.Scanner;
 import java.util.concurrent.Semaphore;
 
 public class LineEditor {
-	private String filePath;
+    private String filePath;
     private List<String> lines;
     private boolean quit = false;
     private static final Semaphore semaphore = new Semaphore(1);
