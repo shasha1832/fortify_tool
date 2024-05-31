@@ -1,28 +1,23 @@
 package com.main;
-import java.io.*;
-import java.util.*;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
 import java.util.concurrent.Semaphore;
-import java.util.function.Consumer;
 
 public class LineEditor {
+	private String filePath;
     private List<String> lines;
-    private String filePath;
+    private boolean quit = false;
     private static final Semaphore semaphore = new Semaphore(1);
 
-
     public LineEditor(String filePath) throws IOException {
-        this.filePath = filePath;
-        this.lines = new ArrayList<>();
-        loadFile();
-    }
-
-    private void loadFile() throws IOException {
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                lines.add(line);
-            }
-        }
+    	this.filePath = filePath;
+        this.lines = Files.readAllLines(Paths.get(filePath));
     }
 
     public void listLines() {
@@ -39,24 +34,30 @@ public class LineEditor {
         }
     }
 
-    public void insertLine(int lineNumber, String newLine) {
+    public void insertLine(int lineNumber, String text) {
         if (lineNumber > 0 && lineNumber <= lines.size() + 1) {
-            lines.add(lineNumber - 1, newLine);
+            lines.add(lineNumber - 1, text);
         } else {
             System.out.println("Invalid line number");
         }
     }
 
     public void saveFile() throws IOException {
-        semaphore.acquireUninterruptibly();
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-            for (String line : lines) {
-                writer.write(line);
-                writer.newLine();
-            }
-        } finally {
-            semaphore.release();
-        }
+    	semaphore.acquireUninterruptibly();
+    	try {
+    		Files.write(Paths.get(filePath), lines);
+    	}finally {
+			semaphore.release();
+		}
+        
+    }
+
+    public boolean isQuit() {
+        return quit;
+    }
+
+    public void setQuit(boolean quit) {
+        this.quit = quit;
     }
 
     public static void main(String[] args) {
@@ -67,55 +68,34 @@ public class LineEditor {
 
         try (Scanner scanner = new Scanner(System.in)) {
             LineEditor editor = new LineEditor(args[0]);
-            Map<String, Consumer<String>> commands = new HashMap<>();
+            Map<String, Command> commands = new HashMap<>();
 
-            commands.put("list", s -> editor.listLines());
-            commands.put("del", s -> {
-                try {
-                    editor.deleteLine(Integer.parseInt(s.trim()));
-                } catch (NumberFormatException e) {
-                    System.out.println("Invalid line number");
-                }
+            commands.put("list", new ListCommand(editor));
+            commands.put("del", () -> {
+                System.out.print("Enter line number: ");
+                int lineNumber = Integer.parseInt(scanner.nextLine().trim());
+                new DeleteCommand(editor, lineNumber).execute();
             });
-            commands.put("ins", s -> {
-                String[] parts = s.split(" ", 2);
+            commands.put("ins", () -> {
+                System.out.print("Enter line number and text: ");
+                String[] parts = scanner.nextLine().trim().split(" ", 2);
                 if (parts.length > 1) {
-                    try {
-                        int lineNumber = Integer.parseInt(parts[0].trim());
-                        editor.insertLine(lineNumber, parts[1]);
-                    } catch (NumberFormatException e) {
-                        System.out.println("Invalid line number");
-                    }
+                    int lineNumber = Integer.parseInt(parts[0].trim());
+                    String text = parts[1];
+                    new InsertCommand(editor, lineNumber, text).execute();
                 } else {
                     System.out.println("Usage: ins <line number> <text>");
                 }
             });
-            commands.put("save", s -> {
-                try {
-                    editor.saveFile();
-                } catch (IOException e) {
-                    System.out.println("Error saving file: " + e.getMessage());
-                }
-            });
-            commands.put("quit", s -> {
-                // No action required for quit
-            });
+            commands.put("save", new SaveCommand(editor));
+            commands.put("quit", new QuitCommand(editor));
 
-            boolean quit = false;
-
-            while (!quit) {
+            while (!editor.isQuit()) {
                 System.out.print(">> ");
                 String input = scanner.nextLine().trim();
-                String[] parts = input.split(" ", 2);
-                String command = parts[0];
-                String argument = parts.length > 1 ? parts[1] : "";
-
-                Consumer<String> action = commands.get(command);
-                if (action != null) {
-                    action.accept(argument);
-                    if (command.equals("quit")) {
-                        quit = true;
-                    }
+                Command command = commands.get(input);
+                if (command != null) {
+                    command.execute();
                 } else {
                     System.out.println("Unknown command");
                 }
